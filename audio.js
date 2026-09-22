@@ -135,8 +135,10 @@
   music.addEventListener('error',()=>{failed=true;pending=false;buffering=false;update();});
   document.addEventListener('visibilitychange',()=>{
     applyEffects();
-    if(document.hidden){requestId++;clearTimeout(duckTimer);clearTimeout(resumeTimer);cancelAnimationFrame(fadeId);expectedPause=true;pending=false;music.pause();update();}
-    else if(prefs.bgmEnabled&&hasPlayed){expectedPause=false;void startMusic(true);}else update();
+    // Background tabs keep the same media element playing. If the browser suspends
+    // it anyway, resume when the page becomes visible again.
+    if(document.hidden){update();return;}
+    if(prefs.bgmEnabled&&hasPlayed&&music.paused&&!pending&&!failed){expectedPause=false;void startMusic(true);}else update();
   });
   // If audible autoplay is blocked, retry in the first genuine click/tap/key gesture.
   function resumeRemembered(e){
