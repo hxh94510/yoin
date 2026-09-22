@@ -23,7 +23,7 @@
   const sfxToggle=document.getElementById('sfx-toggle');
   const preview=document.getElementById('sfx-preview');
   const fx=window.Cuelume;
-  let pending=false,failed=false,autoplayBlocked=false,buffering=false,hasPlayed=false,fadeId=0,requestId=0;
+  let pending=false,failed=false,autoplayBlocked=false,buffering=false,hasPlayed=false,fadeId=0,requestId=0,resumeTimer=0,expectedPause=false;
   let route=null,duckTimer=0,lastCueAt=-Infinity;
   music.volume=prefs.bgmVolume;
   function save(){try{localStorage.setItem('yoin:audio',JSON.stringify(prefs));}catch{}}
@@ -57,6 +57,15 @@
     };
     if(milliseconds===0){music.volume=value;done?.();}else fadeId=requestAnimationFrame(step);
   }
+  function scheduleResume(){
+    clearTimeout(resumeTimer);
+    resumeTimer=setTimeout(()=>{
+      resumeTimer=0;
+      if(expectedPause||document.hidden||!prefs.bgmEnabled||!hasPlayed||pending||failed||autoplayBlocked||!music.paused)return;
+      // A route change must not create a second player; resume this same element in place.
+      void startMusic(true);
+    },0);
+  }
   function cue(name,volume=1){
     if(!prefs.sfxEnabled||prefs.sfxVolume===0||document.hidden||!fx)return;
     const now=performance.now();
@@ -71,6 +80,7 @@
   async function startMusic(automatic=false){
     const token=++requestId;
     clearTimeout(duckTimer);cancelAnimationFrame(fadeId);
+    expectedPause=false;
     prefs.bgmEnabled=true;pending=true;failed=false;autoplayBlocked=false;buffering=false;save();update();
     // Automatic playback is requested at the chosen volume, never as a muted-policy workaround.
     music.volume=automatic?prefs.bgmVolume:0;
@@ -92,6 +102,7 @@
   function stopMusic(){
     const token=++requestId;
     prefs.bgmEnabled=false;pending=false;buffering=false;failed=false;autoplayBlocked=false;
+    expectedPause=true;
     clearTimeout(duckTimer);save();update();
     fadeTo(0,music.paused?0:160,()=>{if(token===requestId){music.pause();update();}});
   }
@@ -117,13 +128,15 @@
   preview.addEventListener('click',()=>cue('chime',.7));
   music.addEventListener('playing',()=>{pending=false;buffering=false;failed=false;hasPlayed=true;update();});
   music.addEventListener('waiting',()=>{if(prefs.bgmEnabled&&!music.paused)buffering=true;update();});
-  music.addEventListener('pause',()=>{buffering=false;update();});
+  music.addEventListener('stalled',()=>{if(prefs.bgmEnabled&&!music.paused)buffering=true;update();});
+  music.addEventListener('canplay',()=>{if(!music.paused){buffering=false;update();}});
+  music.addEventListener('pause',()=>{buffering=false;update();scheduleResume();});
   music.addEventListener('ended',update);
   music.addEventListener('error',()=>{failed=true;pending=false;buffering=false;update();});
   document.addEventListener('visibilitychange',()=>{
     applyEffects();
-    if(document.hidden){requestId++;clearTimeout(duckTimer);cancelAnimationFrame(fadeId);pending=false;music.pause();update();}
-    else if(prefs.bgmEnabled&&hasPlayed)void startMusic();else update();
+    if(document.hidden){requestId++;clearTimeout(duckTimer);clearTimeout(resumeTimer);cancelAnimationFrame(fadeId);expectedPause=true;pending=false;music.pause();update();}
+    else if(prefs.bgmEnabled&&hasPlayed){expectedPause=false;void startMusic(true);}else update();
   });
   // If audible autoplay is blocked, retry in the first genuine click/tap/key gesture.
   function resumeRemembered(e){
@@ -134,8 +147,9 @@
   document.addEventListener('pointerdown',resumeRemembered,{capture:true});
   document.addEventListener('click',resumeRemembered,{capture:true});
   document.addEventListener('keydown',resumeRemembered,{capture:true});
-  window.addEventListener('pagehide',()=>{requestId++;clearTimeout(duckTimer);cancelAnimationFrame(fadeId);music.pause();fx?.setEnabled(false);});
-  window.addEventListener('pageshow',applyEffects);
+  window.addEventListener('pagehide',()=>{requestId++;clearTimeout(duckTimer);clearTimeout(resumeTimer);cancelAnimationFrame(fadeId);expectedPause=true;music.pause();fx?.setEnabled(false);});
+  window.addEventListener('pageshow',()=>{expectedPause=false;applyEffects();if(prefs.bgmEnabled&&hasPlayed&&!pending&&!failed&&!document.hidden&&music.paused)void startMusic(true);});
+  window.addEventListener('hashchange',scheduleResume);
 
   // Capture selection state before the SPA changes it. Native click includes keyboard activation.
   document.addEventListener('click',e=>{
@@ -170,6 +184,7 @@
         else cue('page',.45);
       }
       route=key;
+      scheduleResume();
     },
     feedback(message){
       if(/已复制|已生成|已清除/.test(message))cue('success',.6);
