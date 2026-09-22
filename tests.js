@@ -93,6 +93,38 @@
     rank(vector, characters) {
       return characters.map(c=>({id:c.id,distance:Math.sqrt(vector.reduce((s,v,i)=>s+(v-c.axes[i])**2,0)/vector.length)}))
         .sort((a,b)=>a.distance-b.distance).map(r=>({...r,similarity:Math.round(100-r.distance)}));
+    },
+    interests(test, answers) {
+      if(answers.length!==test.questions.length||answers.some((a,i)=>!Number.isInteger(a)||!test.questions[i].options[a]))throw new Error('请完成全部场景');
+      return Object.fromEntries(window.YOIN_INTERESTS.facets.map(([id])=>{
+        // Divide by available opportunities, so frequently offered hobbies do not
+        // win merely because more questions mention them.
+        const possible=test.questions.reduce((sum,q)=>sum+Math.max(...q.options.map(o=>o.interests?.[id]||0)),0);
+        const chosen=test.questions.reduce((sum,q,i)=>sum+(q.options[answers[i]].interests?.[id]||0),0);
+        return [id,possible?Math.round(chosen/possible*100):0];
+      }));
+    },
+    rankResult(test, result, characters=window.YOIN_DATA.characters) {
+      const style=api.rank(result.vector,characters);
+      if(test.kind!=='parenting')return style;
+      const facets=window.YOIN_INTERESTS.facets.map(([id])=>id);
+      const preference=result.interests||{};
+      const magnitude=Math.hypot(...facets.map(id=>preference[id]||0));
+      return style.map(match=>{
+        const weights=window.YOIN_INTERESTS.profiles[match.id].weights;
+        const dot=facets.reduce((sum,id)=>sum+(preference[id]||0)*(weights[id]||0),0);
+        const otherMagnitude=Math.hypot(...facets.map(id=>weights[id]||0));
+        const interestSimilarity=magnitude&&otherMagnitude?Math.min(100,dot/magnitude/otherMagnitude*100):0;
+        const styleSimilarity=100-match.distance;
+        const combined=interestSimilarity*test.matchWeights.interests+styleSimilarity*test.matchWeights.style;
+        return {...match,distance:100-combined,similarity:Math.round(combined),interestSimilarity:Math.round(interestSimilarity),styleSimilarity:Math.round(styleSimilarity)};
+      }).sort((a,b)=>a.distance-b.distance);
+    },
+    assess(test, answers) {
+      const result={vector:api.score(test,answers)};
+      if(test.kind==='parenting')result.interests=api.interests(test,answers);
+      result.matches=api.rankResult(test,result);
+      return result;
     }
   };
   window.YOIN_SCORING=api;
