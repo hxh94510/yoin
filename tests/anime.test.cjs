@@ -6,7 +6,7 @@ const vm=require('node:vm');
 function load(storage){
   const context={window:{},localStorage:storage,console,setTimeout,clearTimeout};
   vm.createContext(context);
-  for(const file of ['data.js','interests.js','anime-catalog.js','anime.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
+  for(const file of ['data.js','interests.js','anime-catalog.js','anime-calibration.js','anime.js'])vm.runInContext(fs.readFileSync(path.join(__dirname,'..',file),'utf8'),context,{filename:file});
   return context.window;
 }
 const store=new Map();
@@ -38,6 +38,9 @@ const completed={version:1,catalogVersion:C.version,cast,date:'2026-09-22T00:00:
 store.set('yoin:anime-result',JSON.stringify(completed));
 store.set('yoin:result:chat-dna','{"untouched":true}');
 assert(A.result().includes('另两条世界线'));
+assert(A.result().includes('上次阵容已保留'));
+assert(first.ranked.every(r=>Math.abs(r.score-(.75*r.relative+.25*r.baseScore))<1e-10));
+assert.equal(W.YOIN_ANIME_CALIBRATION.key,A.calibrationKey);
 const svg=A.posterSVG(completed);
 assert.equal((svg.match(/<image /g)||[]).length,8);
 assert(svg.includes('data:image/'));assert(!svg.includes('undefined'));

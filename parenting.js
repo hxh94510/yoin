@@ -108,7 +108,7 @@
     return `<div class="interest-evidence">${profile.items.map(item => `<details><summary><b>${esc(item.label)}</b><span>${esc(item.kind)} <i>＋</i></span></summary><div class="interest-proof">${item.evidence.map(e => `<blockquote>${esc(e.text)}</blockquote><p class="subtle">${esc(e.time)} · CSV 记录 #${e.row} · ${e.excerpt ? '原文节选' : '原文'}</p>`).join('')}${item.note ? `<p class="interest-note">${esc(item.note)}</p>` : ''}</div></details>`).join('')}</div>`;
   }
 
-  function result(t, r, {art, radar, miniAvatar, esc, arrow, axes, byId}) {
+  function result(t, r, {art, radar, miniAvatar, esc, arrow, axes, byId, scoringNotice}) {
     const winner = r.matches[0], c = byId(winner.id), outcome = t.outcomes[c.id];
     const interests = r.interests || {};
     const topInterests = Object.entries(interests).sort((a,b) => b[1]-a[1]).filter(([,v]) => v>0).slice(0,3);
@@ -120,7 +120,7 @@
         return [{question:t.questions[i], option, index:i, relevance}];
       }).sort((a,b) => b.relevance-a.relevance).slice(0,3).sort((a,b) => a.index-b.index) : [];
     return `<div class="page-wrap result-page parenting-result" style="--accent:${c.color}">
-      <a class="back-link" href="#tests">← 返回测试实验室</a>
+      ${scoringNotice(r)}<a class="back-link" href="#tests">← 返回测试实验室</a>
       <section class="result-hero"><div class="result-title">
         <span class="pill">GROWING UP / RESULT</span><p class="eyebrow">在这次养成实验里，你的孩子最像</p>
         <h1>${c.name}<span>小小的${c.title}</span></h1><p class="result-blurb">${outcome.line}</p>
@@ -139,7 +139,7 @@
         <p class="subtle">六维呈现回应与引导方式；兴趣另行参与匹配，不从雷达图推断爱好。</p></section>
         <section class="result-matches"><p class="eyebrow">THREE POSSIBLE CHARACTERS</p><h2>成长，也有别的支线。</h2>${r.matches.slice(0,3).map((m,i)=>{const x=byId(m.id);return `<a class="match-row" href="#character/${x.id}"><span class="match-number">0${i+1}</span>${miniAvatar(x.id)}<span><b>${x.name}</b><small>${x.title}</small></span><strong>${m.similarity}<small>/100</small></strong><i>↗</i></a>`;}).join('')}
         <p class="result-reading">${r.matches[1].distance-winner.distance<4?'前两名接近，说明这次选择同时接上了几种兴趣与性格。':'这些角色共享了你选择中的部分兴趣与性格，第一名只是最接近的一条支线。'}</p>
-        <p class="subtle">综合契合度：兴趣 60% + 六维 40%，不是预测概率。</p></section></div>
+        <p class="subtle">兴趣与六维证据分别校准后，按 60% / 40% 加权，再转为 0–100 指标；不是预测概率。</p></section></div>
       <section class="growth-sources"><p class="eyebrow">REAL INTERESTS, FROM THE CHAT</p><h2>为什么是 ${c.name}？看看 TA 喜欢什么。</h2><p>${esc(data.profiles[c.id].summary)}</p>
         ${evidence(c.id, esc)}<p class="subtle">已核对发送人与相邻语境；参与讨论不等于长期爱好，记录未提及也不等于不喜欢。</p>
         <a class="text-link" href="#character/${c.id}">查看 ${c.name} 的完整档案 ${arrow}</a></section>

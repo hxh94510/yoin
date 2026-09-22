@@ -79,10 +79,51 @@
     if(data.some(d=>d.noise===0))throw new Error('测试选项必须覆盖每个维度的差异');
     calibrationCache.set(test,data);return data;
   }
+  // Questionnaire schema versions stay unchanged: the scenes did not change.
+  // Scoring has its own version so completed answer snapshots can be recalculated.
+  const SCORING_VERSION=3, evidenceCache=new WeakMap();
+  const mean=values=>values.reduce((s,v)=>s+v,0)/values.length;
+  const validAnswers=(test,answers)=>Array.isArray(answers)&&answers.length===test.questions.length&&Array.from(answers).every((a,i)=>Number.isInteger(a)&&!!test.questions[i].options[a]);
+  const indicator=z=>100/(1+Math.exp(-z/1.5));
+  function evidenceModel(test) {
+    if(evidenceCache.has(test))return evidenceCache.get(test);
+    const prototypes=window.YOIN_DATA.characters,params=calibration(test);
+    const model=Object.fromEntries(prototypes.map(c=>{
+      // Center prototype directions; a middle-of-the-pack prototype no longer
+      // wins simply by being near the average of ten unrelated answers.
+      const direction=c.axes.map((v,k)=>(v-params[k].mean)/(params[k].spread||1));
+      const norm=Math.hypot(...direction)||1;
+      const make=type=>{
+        const values=test.questions.map(q=>q.options.map(o=>type==='style'
+          ? o.vector.reduce((s,v,k)=>s+v/(params[k].spread||1)*direction[k]/norm,0)
+          : Object.entries(o.interests||{}).reduce((s,[id,v])=>s+v*(window.YOIN_INTERESTS.profiles[c.id].weights[id]||0),0)));
+        const expected=values.reduce((s,v)=>s+mean(v),0);
+        // Variance of each whole option, not independent axis variances: choices
+        // correlate dimensions and interests. The question sum is independent
+        // only in this synthetic reference, not a claim about real respondents.
+        const noise=Math.sqrt(values.reduce((s,v)=>{const m=mean(v);return s+mean(v.map(x=>(x-m)**2));},0));
+        return {values,expected,noise};
+      };
+      return [c.id,{style:make('style'),interest:test.kind==='parenting'?make('interest'):null}];
+    }));
+    evidenceCache.set(test,model);return model;
+  }
+  function evidenceRank(test,answers,characters) {
+    const model=evidenceModel(test);
+    return characters.map(c=>{
+      const p=model[c.id];
+      const evaluate=part=>part.noise?(part.values.reduce((s,v,i)=>s+v[answers[i]],0)-part.expected)/part.noise:0;
+      const styleEvidence=evaluate(p.style),interestEvidence=p.interest?evaluate(p.interest):null;
+      const evidence=interestEvidence===null?styleEvidence:styleEvidence*test.matchWeights.style+interestEvidence*test.matchWeights.interests;
+      const value=indicator(evidence);
+      return {id:c.id,evidence,distance:100-value,similarity:Math.round(value),styleEvidence,interestEvidence,styleSimilarity:Math.round(indicator(styleEvidence)),...(interestEvidence===null?{}:{interestSimilarity:Math.round(indicator(interestEvidence))})};
+    }).sort((a,b)=>b.evidence-a.evidence||a.id.localeCompare(b.id));
+  }
   const api = {
+    version:SCORING_VERSION,validAnswers,evidenceModel,
     calibration,
     score(test, answers) {
-      if (answers.length !== test.questions.length || answers.some((a,i)=>!Number.isInteger(a)||!test.questions[i].options[a])) throw new Error('请完成全部场景');
+      if (!validAnswers(test,answers)) throw new Error('请完成全部场景');
       const params=calibration(test);
       return test.dimensions.map((_,d)=>{
         const sum=test.questions.reduce((s,q,i)=>s+q.options[answers[i]].vector[d],0);
@@ -95,7 +136,7 @@
         .sort((a,b)=>a.distance-b.distance).map(r=>({...r,similarity:Math.round(100-r.distance)}));
     },
     interests(test, answers) {
-      if(answers.length!==test.questions.length||answers.some((a,i)=>!Number.isInteger(a)||!test.questions[i].options[a]))throw new Error('请完成全部场景');
+      if(!validAnswers(test,answers))throw new Error('请完成全部场景');
       return Object.fromEntries(window.YOIN_INTERESTS.facets.map(([id])=>{
         // Divide by available opportunities, so frequently offered hobbies do not
         // win merely because more questions mention them.
@@ -105,6 +146,9 @@
       }));
     },
     rankResult(test, result, characters=window.YOIN_DATA.characters) {
+      if(validAnswers(test,result.answers))return evidenceRank(test,result.answers,characters);
+      // Read-only compatibility for old summaries without answer snapshots.
+      // The UI labels these as legacy instead of inventing their missing answers.
       const style=api.rank(result.vector,characters);
       if(test.kind!=='parenting')return style;
       const facets=window.YOIN_INTERESTS.facets.map(([id])=>id);
@@ -121,7 +165,7 @@
       }).sort((a,b)=>a.distance-b.distance);
     },
     assess(test, answers) {
-      const result={vector:api.score(test,answers)};
+      const result={vector:api.score(test,answers),answers:answers.slice(),scoringVersion:SCORING_VERSION};
       if(test.kind==='parenting')result.interests=api.interests(test,answers);
       result.matches=api.rankResult(test,result);
       return result;
